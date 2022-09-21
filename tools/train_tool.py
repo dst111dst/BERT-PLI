@@ -9,7 +9,7 @@ from timeit import default_timer as timer
 from collections import defaultdict
 import json
 
-from tools.eval_tool import valid, gen_time_str, output_value
+from tools.eval_tool import valid, gen_time_str, output_value, test
 from tools.init_tool import init_test_dataset, init_formatter
 
 logger = logging.getLogger(__name__)
@@ -127,11 +127,11 @@ def train(parameters, config, gpu_list, mode ='train'):
         writer.add_scalar(config.get("output", "model_name") + "_train_epoch", float(total_loss) / (step + 1),
                           current_epoch)
 
-        if mode != 'train':
-            with torch.no_grad():
-                test_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,
+        # if mode != 'train':
+        with torch.no_grad():
+            test_res = valid(model, parameters["test_dataset"], current_epoch, writer, config, gpu_list,
                                  output_function,mode = 'test')
-                print(test_res)
+            print(test_res)
         # if current_epoch % test_time == 0:
         #     with torch.no_grad():
         #         eval_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,

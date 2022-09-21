@@ -31,7 +31,7 @@ def checkpoint(filename, model, optimizer, trained_epoch, config, global_step):
         logger.warning("Cannot save models with error %s, continue anyway" % str(e))
 
 
-def train(parameters, config, gpu_list):
+def train(parameters, config, gpu_list, mode ='train'):
     epoch = config.getint("train", "epoch")
     batch_size = config.getint("train", "batch_size")
 
@@ -127,8 +127,13 @@ def train(parameters, config, gpu_list):
         writer.add_scalar(config.get("output", "model_name") + "_train_epoch", float(total_loss) / (step + 1),
                           current_epoch)
 
-        if current_epoch % test_time == 0:
+        if mode != 'train':
             with torch.no_grad():
-                eval_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,
+                test_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,
                                  output_function)
+                print(test_res)
+        # if current_epoch % test_time == 0:
+        #     with torch.no_grad():
+        #         eval_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,
+        #                          output_function)
 

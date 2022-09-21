@@ -1,148 +1,139 @@
 import logging
 import os
 import torch
-import numpy as np
-from collections import defaultdict
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from tensorboardX import SummaryWriter
+import shutil
 from timeit import default_timer as timer
+from collections import defaultdict
+import json
+
+from tools.eval_tool import valid, gen_time_str, output_value
+from tools.init_tool import init_test_dataset, init_formatter
 
 logger = logging.getLogger(__name__)
 
 
-def gen_time_str(t):
-    t = int(t)
-    minute = t // 60
-    second = t % 60
-    return '%2d:%02d' % (minute, second)
+def checkpoint(filename, model, optimizer, trained_epoch, config, global_step):
+    model_to_save = model.module if hasattr(model, 'module') else model
+    save_params = {
+        "model": model_to_save.state_dict(),
+        "optimizer_name": config.get("train", "optimizer"),
+        "optimizer": optimizer.state_dict(),
+        "trained_epoch": trained_epoch,
+        "global_step": global_step
+    }
 
-
-def output_value(epoch, mode, step, time, loss, info, end, config):
     try:
-        delimiter = config.get("output", "delimiter")
+        torch.save(save_params, filename)
     except Exception as e:
-        delimiter = " "
-    s = ""
-    s = s + str(epoch) + " "
-    while len(s) < 7:
-        s += " "
-    s = s + str(mode) + " "
-    while len(s) < 14:
-        s += " "
-    s = s + str(step) + " "
-    while len(s) < 25:
-        s += " "
-    s += str(time)
-    while len(s) < 40:
-        s += " "
-    s += str(loss)
-    while len(s) < 48:
-        s += " "
-    s += str(info)
-    s = s.replace(" ", delimiter)
-    if not (end is None):
-        print(s, end=end)
-    else:
-        print(s)
+        logger.warning("Cannot save models with error %s, continue anyway" % str(e))
 
 
-def eval_micro_query(_result_list):
-    label_dict = defaultdict(lambda: [])
-    pred_dict = defaultdict(lambda: defaultdict(lambda: 0))
-    for item in _result_list:
-        print(item)
-        guid = item[0]
-        label = int(item[1])
-        pred = np.argmax(item[2])
-        qid, cid = guid.split('_')
-        if label > 0:
-            label_dict[qid].append(cid)
-        pred_dict[qid][cid] = pred
-    assert (len(pred_dict) == len(label_dict))
-
-    correct = 0
-    label = 0
-    predict = 0
-    for qid in label_dict:
-        label += len(label_dict[qid])
-    for qid in pred_dict:
-        for cid in pred_dict[qid]:
-            if pred_dict[qid][cid] == 1:
-                predict += 1
-                if cid in label_dict[qid]:
-                    correct += 1
-    if correct == 0:
-        micro_prec_query = 0
-        micro_recall_query = 0
-    else:
-        micro_prec_query = float(correct) / predict
-        micro_recall_query = float(correct) / label
-    if micro_prec_query > 0 or micro_recall_query > 0:
-        micro_f1_query = (2 * micro_prec_query * micro_recall_query) / (micro_prec_query + micro_recall_query)
-    else:
-        micro_f1_query = 0
-    return micro_prec_query, micro_recall_query, micro_f1_query
-
-
-def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode="valid"):
-    model.eval()
-
-    acc_result = None
-    total_loss = 0
-    cnt = 0
-    total_len = len(dataset)
-    start_time = timer()
-    output_info = ""
+def train(parameters, config, gpu_list, mode ='train'):
+    epoch = config.getint("train", "epoch")
+    batch_size = config.getint("train", "batch_size")
 
     output_time = config.getint("output", "output_time")
-    step = -1
+    test_time = config.getint("output", "test_time")
+
+    output_path = os.path.join(config.get("output", "model_path"), config.get("output", "model_name"))
+    if os.path.exists(output_path):
+        logger.warning("Output path exists, check whether need to change a name of model")
+    os.makedirs(output_path, exist_ok=True)
+
+    trained_epoch = parameters["trained_epoch"] + 1
+    model = parameters["model"]
+    optimizer = parameters["optimizer"]
+    dataset = parameters["train_dataset"]
+    global_step = parameters["global_step"]
+    output_function = parameters["output_function"]
+
+    if trained_epoch == 0:
+        shutil.rmtree(
+            os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")), True)
+
+    os.makedirs(os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")),
+                exist_ok=True)
+
+    writer = SummaryWriter(os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")),
+                           config.get("output", "model_name"))
+
+    step_size = config.getint("train", "step_size")
+    gamma = config.getfloat("train", "lr_multiplier")
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+    exp_lr_scheduler.step(trained_epoch)
+
+    logger.info("Training start....")
+
+    print("Epoch  Stage  Iterations  Time Usage    Loss    Output Information")
+
+    total_len = len(dataset)
     more = ""
     if total_len < 10000:
         more = "\t"
-    result = []
+    for epoch_num in range(trained_epoch, epoch):
+        start_time = timer()
+        current_epoch = epoch_num
 
-    for step, data in enumerate(dataset):
-        for key in data.keys():
-            if isinstance(data[key], torch.Tensor):
-                if len(gpu_list) > 0:
-                    data[key] = Variable(data[key].cuda())
-                else:
-                    data[key] = Variable(data[key])
+        exp_lr_scheduler.step(current_epoch)
 
-        results = model(data, config, gpu_list, acc_result, "valid")
-        # print(results)
-        # acc_result, output = results["acc_result"], results["output"]
-        loss, acc_result, output = results["loss"], results["acc_result"], results["output"]
-        total_loss += float(loss)
-        result = result + output
-        cnt += 1
+        acc_result = None
+        total_loss = 0
 
-        if step % output_time == 0:
-            delta_t = timer() - start_time
+        output_info = ""
+        step = -1
+        for step, data in enumerate(dataset):
+            for key in data.keys():
+                if isinstance(data[key], torch.Tensor):
+                    if len(gpu_list) > 0:
+                        data[key] = Variable(data[key].cuda())
+                    else:
+                        data[key] = Variable(data[key])
 
-            output_value(epoch, mode, "%d/%d" % (step + 1, total_len), "%s/%s" % (
-                gen_time_str(delta_t), gen_time_str(delta_t * (total_len - step - 1) / (step + 1))),
-                         "%.3lf" % (total_loss / (step + 1)), output_info, '\r', config)
+            optimizer.zero_grad()
 
-    if step == -1:
-        logger.error("There is no data given to the model in this epoch, check your data.")
-        raise NotImplementedError
+            results = model(data, config, gpu_list, acc_result, "train")
 
-    delta_t = timer() - start_time
-    output_info = output_function(acc_result, config)
-    output_value(epoch, mode, "%d/%d" % (step + 1, total_len), "%s/%s" % (
-        gen_time_str(delta_t), gen_time_str(delta_t * (total_len - step - 1) / (step + 1))),
-                 "%.3lf" % (total_loss / (step + 1)), output_info, None, config)
+            loss, acc_result = results["loss"], results["acc_result"]
+            total_loss += float(loss)
 
-    writer.add_scalar(config.get("output", "model_name") + "_eval_epoch", float(total_loss) / (step + 1),
-                      epoch)
+            loss.backward()
+            optimizer.step()
 
-    # eval results based on query micro F1
-    micro_prec_query, micro_recall_query, micro_f1_query = eval_micro_query(result)
-    loss_tmp = total_loss / (step + 1)
-    print('valid set: micro_prec_query=%.4f, micro_recall_query=%.4f, micro_f1_query=%.4f' %
-          (micro_prec_query, micro_recall_query, micro_f1_query))
+            if step % output_time == 0:
+                output_info = output_function(acc_result, config)
 
-    model.train()
-    return {'precision': micro_prec_query, 'recall': micro_recall_query, 'f1': micro_f1_query, 'loss': loss_tmp}
+                delta_t = timer() - start_time
+
+                output_value(current_epoch, "train", "%d/%d" % (step + 1, total_len), "%s/%s" % (
+                    gen_time_str(delta_t), gen_time_str(delta_t * (total_len - step - 1) / (step + 1))),
+                             "%.3lf" % (total_loss / (step + 1)), output_info, '\r', config)
+
+            global_step += 1
+            writer.add_scalar(config.get("output", "model_name") + "_train_iter", float(loss), global_step)
+
+        output_value(current_epoch, "train", "%d/%d" % (step + 1, total_len), "%s/%s" % (
+            gen_time_str(delta_t), gen_time_str(delta_t * (total_len - step - 1) / (step + 1))),
+                     "%.3lf" % (total_loss / (step + 1)), output_info, None, config)
+
+        if step == -1:
+            logger.error("There is no data given to the model in this epoch, check your data.")
+            raise NotImplementedError
+
+        checkpoint(os.path.join(output_path, "%d.pkl" % current_epoch), model, optimizer, current_epoch, config,
+                   global_step)
+        writer.add_scalar(config.get("output", "model_name") + "_train_epoch", float(total_loss) / (step + 1),
+                          current_epoch)
+
+        if mode != 'train':
+            with torch.no_grad():
+                test_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,
+                                 output_function,mode = 'test')
+                print(test_res)
+        # if current_epoch % test_time == 0:
+        #     with torch.no_grad():
+        #         eval_res = valid(model, parameters["valid_dataset"], current_epoch, writer, config, gpu_list,
+        #                          output_function)
+

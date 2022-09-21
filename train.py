@@ -44,6 +44,10 @@ if __name__ == "__main__":
         logger.error("CUDA is not available but specific gpu id")
         raise NotImplementedError
 
+    # train:
     parameters = init_all(config, gpu_list, args.checkpoint, "train")
+    #test:
+    # args.checkpoint='output/model/task2/2.pkl'
+    # parameters = init_all(config, gpu_list, args.checkpoint, "test")
 
     train(parameters, config, gpu_list)

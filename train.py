@@ -50,4 +50,4 @@ if __name__ == "__main__":
     # args.checkpoint='output/model/task2/2.pkl'
     # parameters = init_all(config, gpu_list, args.checkpoint, "test")
 
-    train(parameters, config, gpu_list)
+    train(parameters, config, gpu_list,mode ='test')

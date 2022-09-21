@@ -34,7 +34,7 @@ class BertPairTextFormatter(BasicFormatter):
             input_ids.append(res_dict['input_ids'])
             attention_mask.append(res_dict['input_mask'])
             token_type_ids.append(res_dict['segment_ids'])
-            guids.append(temp['guid'])
+            guids.append(temp['quid'])
 
             if mode != 'test':
                 labels.append(res_dict['label_id'])

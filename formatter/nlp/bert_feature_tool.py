@@ -20,18 +20,19 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def example_item_to_feature(example, max_seq_length,
-                                 tokenizer, output_mode, mode='test',
+                                 tokenizer, output_mode, mode='train',
                                  cls_token_at_end=False, pad_on_left=False,
                                  cls_token='[CLS]', sep_token='[SEP]', pad_token=0,
                                  sequence_a_segment_id=0, sequence_b_segment_id=1,
                                  cls_token_segment_id=1, pad_token_segment_id=0,
                                  mask_padding_with_zero=True):
-
-    tokens_a = tokenizer.tokenize(example['text_a'])
+    text_a = '。'.join(i for i in example['text_a'])
+    tokens_a = tokenizer.tokenize(text_a)
 
     tokens_b = None
     if 'text_b' in example:
-        tokens_b = tokenizer.tokenize(example['text_b'])
+        text_b = '。'.join(i for i in example['text_b'])
+        tokens_b = tokenizer.tokenize(text_b)
         # Modifies `tokens_a` and `tokens_b` in place so that the total
         # length is less than the specified length.
         # Account for [CLS], [SEP], [SEP] with "- 3"

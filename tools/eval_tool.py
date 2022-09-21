@@ -51,6 +51,7 @@ def eval_micro_query(_result_list):
     label_dict = defaultdict(lambda: [])
     pred_dict = defaultdict(lambda: defaultdict(lambda: 0))
     for item in _result_list:
+        print(item)
         guid = item[0]
         label = int(item[1])
         pred = np.argmax(item[2])
@@ -110,7 +111,8 @@ def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode
                     data[key] = Variable(data[key])
 
         results = model(data, config, gpu_list, acc_result, "valid")
-
+        # print(results)
+        # acc_result, output = results["acc_result"], results["output"]
         loss, acc_result, output = results["loss"], results["acc_result"], results["output"]
         total_loss += float(loss)
         result = result + output

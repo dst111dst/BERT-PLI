@@ -78,6 +78,7 @@ def example_item_to_feature(example, max_seq_length,
     assert len(segment_ids) == max_seq_length
 
     if mode == 'test':
+        print(example)
         res_dict = {
             'input_ids': input_ids,
             'input_mask': input_mask,

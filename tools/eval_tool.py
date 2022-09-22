@@ -161,8 +161,8 @@ def test(model, dataset, epoch, writer, config, gpu_list, output_function, mode=
     if total_len < 10000:
         more = "\t"
     result = []
-
     for step, data in enumerate(dataset):
+        print("-----------eval_tool----------")
         for key in data.keys():
             if isinstance(data[key], torch.Tensor):
                 if len(gpu_list) > 0:
